@@ -4,6 +4,8 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 from keras import layers, models, losses, optimizers, metrics
 from sklearn.metrics.pairwise import cosine_similarity
+import matplotlib.pyplot as plt
+from keras import regularizers
 
 
 def load_images_from_folder(folder_path, target_size=(128, 128)):
@@ -51,6 +53,30 @@ def create_dataset(folder_path, test_size=0.2, random_state=42):
     return X_train, X_test
 
 
+def show_image(x):
+    plt.imshow(np.clip(x + 0.5, 0, 1))
+
+
+def visualize(img, encoder, decoder):
+    """Draws original, encoded and decoded images"""
+    # img[None] will have shape of (1, 32, 32, 3) which is the same as the model input
+    code = encoder.predict(img[None])[0]
+    reco = decoder.predict(code[None])[0]
+
+    plt.subplot(1, 3, 1)
+    plt.title("Original")
+    show_image(img)
+
+    plt.subplot(1, 3, 2)
+    plt.title("Code")
+    plt.imshow(code.reshape([code.shape[-1] // 2, -1]))
+
+    plt.subplot(1, 3, 3)
+    plt.title("Reconstructed")
+    show_image(reco)
+    plt.show()
+
+
 folder_path = 'convert_faces'
 
 X_train, X_test = create_dataset(folder_path)
@@ -65,7 +91,8 @@ print(X_train.shape, X_test.shape)
 input_shape = X_train.shape[1:]
 
 encoder_input = layers.Input(shape=input_shape)
-x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(encoder_input)
+x = layers.Conv2D(32, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.01))(
+    encoder_input)
 x = layers.MaxPooling2D((2, 2), padding='same')(x)
 x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
 x = layers.MaxPooling2D((2, 2), padding='same')(x)
@@ -95,16 +122,21 @@ encoded = encoder(autoencoder_input)
 decoded = decoder(encoded)
 autoencoder = models.Model(autoencoder_input, decoded)
 
-autoencoder.compile(optimizer='adam', loss='mse', metrics=["accuracy"])
+autoencoder.compile(optimizer='adamw', loss='binary_crossentropy')
 
 # Train the autoencoder
-autoencoder.fit(X_train, X_train, epochs=20, batch_size=32, validation_data=(X_test, X_test))
+autoencoder.fit(X_train, X_train, epochs=50, batch_size=32, validation_data=(X_test, X_test))
 
 # Get embeddings for test set
 embeddings = encoder.predict(X_test)
+
+for i in range(5):
+    img = X_test[i]
+    visualize(img, encoder, decoder)
 
 # Example to calculate cosine similarity
 index1 = 0
 index2 = 1
 cosine_sim = cosine_similarity([embeddings[index1]], [embeddings[index2]])
 print(f"Cosine similarity between image {index1} and {index2}: {cosine_sim[0][0]}")
+
